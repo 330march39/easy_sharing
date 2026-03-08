@@ -378,6 +378,21 @@
     const [newUserId, setNewUserId] = React.useState('');
     const [generatedPass, setGeneratedPass] = React.useState('');
     const [status, setStatus] = React.useState('');
+    const [users, setUsers] = React.useState([]); // ユーザー一覧を保存する場所
+
+    // データベースからユーザー一覧をリアルタイムに取得
+    React.useEffect(() => {
+        const { collection, onSnapshot } = window.firebaseModules;
+        const usersRef = collection(db, 'artifacts', appId, 'userList');
+        const unsub = onSnapshot(usersRef, (snap) => {
+            const loaded = [];
+            snap.forEach(d => loaded.push({ uid: d.id, ...d.data() }));
+            // 作成日順に並び替え
+            loaded.sort((a, b) => b.createdAt - a.createdAt);
+            setUsers(loaded);
+        });
+        return () => unsub();
+    }, [db, appId]);
 
     const generatePassword = () => {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
@@ -391,13 +406,22 @@
         setStatus('作成中...');
         try {
             const { initializeApp, getAuth, createUserWithEmailAndPassword, signOut } = window.firebaseModules;
+            const { doc, setDoc } = window.firebaseModules;
             
-            // 管理者がログアウトしないよう、ユーザー作成用の一時的なFirebaseアプリを立ち上げるテクニック
             const tempApp = initializeApp(USER_FIREBASE_CONFIG, "TempApp" + Date.now());
             const tempAuth = getAuth(tempApp);
             
-            const dummyEmail = `${newUserId}@teamsync.local`; // IDをメール形式に変換
-            await createUserWithEmailAndPassword(tempAuth, dummyEmail, generatedPass);
+            const dummyEmail = newUserId.includes('@') ? newUserId : `${newUserId}@teamsync.local`;
+            const userCred = await createUserWithEmailAndPassword(tempAuth, dummyEmail, generatedPass);
+            
+            // データベースの「ユーザーリスト」にも情報を保存する
+            await setDoc(doc(db, 'artifacts', appId, 'userList', userCred.user.uid), {
+                email: dummyEmail,
+                createdAt: Date.now(),
+                lastActiveAt: 0,
+                isActive: true // 有効かどうかのフラグ
+            });
+            
             await signOut(tempAuth);
             
             setStatus(`作成成功！ ID: ${dummyEmail} / Pass: ${generatedPass}`);
@@ -409,24 +433,108 @@
         }
     };
 
+    // ユーザーの削除（無効化）または復元
+    const toggleUserStatus = async (uid, currentStatus) => {
+        const action = currentStatus ? '削除（無効化）' : '復元';
+        if (!confirm(`このユーザーを${action}しますか？\n無効化されたユーザーはログインできなくなります。`)) return;
+        
+        try {
+            const { doc, updateDoc } = window.firebaseModules;
+            await updateDoc(doc(db, 'artifacts', appId, 'userList', uid), {
+                isActive: !currentStatus
+            });
+        } catch(e) {
+            alert("状態の変更に失敗しました");
+        }
+    };
+
+    // オンライン判定（最終アクセスから5分以内ならオンライン）
+    const isOnline = (lastActiveAt) => {
+        if (!lastActiveAt) return false;
+        return (Date.now() - lastActiveAt) < 5 * 60 * 1000;
+    };
+
     return (
-        <div className="p-6 md:p-10 bg-white min-h-screen">
-            <button onClick={onBack} className="mb-6 text-slate-500 flex items-center gap-2"><IconArrowLeft /> 戻る</button>
-            <h2 className="text-2xl font-bold mb-6">管理者パネル（ユーザー管理）</h2>
+        <div className="p-6 md:p-10 max-w-4xl mx-auto w-full min-h-screen animate-fade-in">
+            <button onClick={onBack} className="mb-6 text-slate-500 hover:text-slate-800 flex items-center gap-2 transition-colors">
+                <IconArrowLeft /> リストへ戻る
+            </button>
+            <h2 className="text-2xl font-bold mb-8 text-slate-800">システム管理</h2>
             
-            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                <h3 className="font-bold mb-4">新規ユーザー追加</h3>
-                <div className="space-y-4">
-                    <input type="text" value={newUserId} onChange={e => setNewUserId(e.target.value)} placeholder="希望するID (例: user01)" className="w-full border rounded-xl px-4 py-3" />
+            {/* 新規ユーザー追加エリア */}
+            <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm mb-10">
+                <h3 className="font-bold mb-6 text-slate-800 flex items-center gap-2">
+                    <IconPlus size={20} className="text-primary" /> 新規ユーザー発行
+                </h3>
+                <div className="space-y-4 max-w-md">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">希望するID</label>
+                        <input type="text" value={newUserId} onChange={e => setNewUserId(e.target.value)} placeholder="例: yamada" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:bg-white focus:outline-none focus:border-primary transition-all" />
+                    </div>
                     
-                    <div className="flex gap-2">
-                        <input type="text" readOnly value={generatedPass} placeholder="パスワード（自動生成）" className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-slate-600" />
-                        <button onClick={generatePassword} className="px-4 bg-primary text-white rounded-xl font-bold">生成</button>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">パスワード</label>
+                        <div className="flex gap-2">
+                            <input type="text" readOnly value={generatedPass} placeholder="（自動生成されます）" className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-slate-600 outline-none" />
+                            <button onClick={generatePassword} className="px-5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-colors">生成</button>
+                        </div>
                     </div>
 
-                    <button onClick={handleCreateUser} className="w-full bg-slate-800 text-white font-bold py-4 rounded-xl">このユーザーを登録する</button>
+                    <button onClick={handleCreateUser} disabled={!newUserId || !generatedPass} className="w-full bg-primary hover:bg-primaryHover text-white font-bold py-4 rounded-xl mt-4 disabled:opacity-50 transition-colors shadow-md shadow-primary/20">
+                        ユーザーを発行する
+                    </button>
                 </div>
-                {status && <p className="mt-4 font-bold text-amber-600">{status}</p>}
+                {status && <p className="mt-4 font-bold text-sm text-primary">{status}</p>}
+            </div>
+
+            {/* ユーザー一覧表示エリア */}
+            <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
+                <h3 className="font-bold mb-6 text-slate-800 flex items-center justify-between">
+                    登録ユーザー一覧
+                    <span className="text-xs font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">計 {users.length} 名</span>
+                </h3>
+                
+                <div className="space-y-3">
+                    {users.length === 0 && <p className="text-slate-400 text-sm">ユーザーがまだ登録されていません。</p>}
+                    
+                    {users.map(u => {
+                        const online = u.isActive && isOnline(u.lastActiveAt);
+                        return (
+                            <div key={u.uid} className={`p-4 md:p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${u.isActive ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                                
+                                <div>
+                                    <div className="font-bold text-slate-800 flex items-center gap-3 text-sm md:text-base">
+                                        <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs uppercase">{u.email[0]}</div>
+                                        {u.email}
+                                        {/* オンラインバッジ */}
+                                        {online && (
+                                            <span className="flex items-center gap-1.5 text-[10px] text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 font-bold tracking-wide">
+                                                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> ONLINE
+                                            </span>
+                                        )}
+                                        {/* 無効化バッジ */}
+                                        {!u.isActive && (
+                                            <span className="text-[10px] text-red-600 bg-red-50 px-2 py-1 rounded-full font-bold">無効化済み</span>
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-2 flex items-center gap-4">
+                                        <span>最終アクセス: {u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleString() : '未ログイン'}</span>
+                                    </div>
+                                </div>
+                                
+                                {/* 削除・復元ボタン */}
+                                {u.email !== 'admin@teamsync.local' && ( // 管理者自身は削除できないように保護
+                                    <button 
+                                        onClick={() => toggleUserStatus(u.uid, u.isActive)} 
+                                        className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${u.isActive ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                                    >
+                                        {u.isActive ? '削除する' : 'アカウント復元'}
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
         </div>
     );
