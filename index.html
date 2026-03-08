@@ -46,11 +46,11 @@
     <!-- Firebase -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         window.firebaseModules = {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            initializeApp, getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
             getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteDoc
         };
         window.dispatchEvent(new Event('firebaseLoaded'));
@@ -206,18 +206,13 @@
             // 2. Auth Flow
             React.useEffect(() => {
                 if (!auth) return;
-                const { signInWithCustomToken, signInAnonymously, onAuthStateChanged } = window.firebaseModules;
-                const doAuth = async () => {
-                    try {
-                        const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                        if (token) await signInWithCustomToken(auth, token);
-                        else await signInAnonymously(auth);
-                    } catch(e) { console.error("認証失敗", e); }
-                };
-                doAuth();
+                const { onAuthStateChanged } = window.firebaseModules;
                 const unsub = onAuthStateChanged(auth, setUser);
                 return () => unsub();
             }, [auth]);
+            
+            // 管理者かどうかの判定（ここではadmin@を含むIDを管理者と仮定。実際の運用に合わせて変更してください）
+            const isAdmin = user && user.email && user.email.includes('admin@');
 
             // 3. Data Fetching
             React.useEffect(() => {
@@ -242,9 +237,18 @@
             }, [db, user, appId]);
 
             if (configError) return <ConfigErrorScreen />;
-            if (!fbReady || !user || !profile) {
-                return <div className="min-h-screen flex items-center justify-center text-slate-400 bg-slate-50">システムの読み込み中...</div>;
+            if (!fbReady) return <div className="min-h-screen flex items-center justify-center text-slate-400">システムの読み込み中...</div>;
+
+            // ログインしていない場合はログイン画面を表示
+            if (!user) return <LoginScreen auth={auth} />;
+            
+            // 管理画面モード
+            if (view === 'admin' && isAdmin) {
+                return <AdminPanel auth={auth} db={db} appId={appId} onBack={() => setView('list')} />;
             }
+            
+            // プロフィール未設定（初回ログイン時のみ）
+            if (!profile) return <div className="min-h-screen flex items-center justify-center text-slate-400">プロファイル読み込み中...</div>;
             if (profile.isNew) return <WelcomeScreen db={db} appId={appId} userId={user.uid} />;
 
             // Handlers
@@ -273,6 +277,14 @@
                         )}
                         
                         <div className="flex items-center gap-2">
+                            {isAdmin && view === 'list' && (
+                                <button onClick={() => setView('admin')} className="p-2 text-slate-500 hover:text-primary rounded-full transition-all">
+                                        <IconSettings size={20} />
+                                    </button>
+                                )}
+                                <button onClick={() => window.firebaseModules.signOut(auth)} className="text-xs text-red-500 font-bold px-3 py-1.5 bg-red-50 hover:bg-red-100 rounded-full transition-all">
+                                    ログアウト
+                                </button>
                             {view === 'list' && (
                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-full shadow-sm border border-slate-100">
                                     <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold uppercase">
@@ -311,6 +323,102 @@
         };
 
         // --- Screens ---
+
+        const LoginScreen = ({ auth }) => {
+    const [email, setEmail] = React.useState('');
+    const [password, setPassword] = React.useState('');
+    const [error, setError] = React.useState('');
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setError('');
+        try {
+            const { signInWithEmailAndPassword } = window.firebaseModules;
+            // セキュリティのため、末尾にドメインを補完して「ID」として見せかけることも可能です
+            await signInWithEmailAndPassword(auth, email, password);
+        } catch (err) {
+            setError('IDまたはパスワードが間違っています。');
+        }
+    };
+
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+            <div className="w-full max-w-sm bg-white rounded-3xl p-8 shadow-lg">
+                <h1 className="text-2xl font-bold text-center mb-6">TeamSync</h1>
+                {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+                <form onSubmit={handleLogin} className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">ログインID</label>
+                        <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="IDを入力" className="w-full border rounded-xl px-4 py-3" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">パスワード</label>
+                        <input type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを入力" className="w-full border rounded-xl px-4 py-3" />
+                    </div>
+                    <button type="submit" className="w-full bg-slate-800 text-white font-bold py-4 rounded-xl mt-4">ログイン</button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+        const AdminPanel = ({ auth, db, appId, onBack }) => {
+    const [newUserId, setNewUserId] = React.useState('');
+    const [generatedPass, setGeneratedPass] = React.useState('');
+    const [status, setStatus] = React.useState('');
+
+    const generatePassword = () => {
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+        let pass = "";
+        for (let i = 0; i < 12; i++) pass += chars.charAt(Math.floor(Math.random() * chars.length));
+        setGeneratedPass(pass);
+    };
+
+    const handleCreateUser = async () => {
+        if (!newUserId || !generatedPass) return;
+        setStatus('作成中...');
+        try {
+            const { initializeApp, getAuth, createUserWithEmailAndPassword, signOut } = window.firebaseModules;
+            
+            // 管理者がログアウトしないよう、ユーザー作成用の一時的なFirebaseアプリを立ち上げるテクニック
+            const tempApp = initializeApp(USER_FIREBASE_CONFIG, "TempApp" + Date.now());
+            const tempAuth = getAuth(tempApp);
+            
+            const dummyEmail = `${newUserId}@teamsync.local`; // IDをメール形式に変換
+            await createUserWithEmailAndPassword(tempAuth, dummyEmail, generatedPass);
+            await signOut(tempAuth);
+            
+            setStatus(`作成成功！ ID: ${dummyEmail} / Pass: ${generatedPass}`);
+            setNewUserId('');
+            setGeneratedPass('');
+        } catch (e) {
+            console.error(e);
+            setStatus('エラー: 作成に失敗しました。IDが既に使用されている可能性があります。');
+        }
+    };
+
+    return (
+        <div className="p-6 md:p-10 bg-white min-h-screen">
+            <button onClick={onBack} className="mb-6 text-slate-500 flex items-center gap-2"><IconArrowLeft /> 戻る</button>
+            <h2 className="text-2xl font-bold mb-6">管理者パネル（ユーザー管理）</h2>
+            
+            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                <h3 className="font-bold mb-4">新規ユーザー追加</h3>
+                <div className="space-y-4">
+                    <input type="text" value={newUserId} onChange={e => setNewUserId(e.target.value)} placeholder="希望するID (例: user01)" className="w-full border rounded-xl px-4 py-3" />
+                    
+                    <div className="flex gap-2">
+                        <input type="text" readOnly value={generatedPass} placeholder="パスワード（自動生成）" className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-slate-600" />
+                        <button onClick={generatePassword} className="px-4 bg-primary text-white rounded-xl font-bold">生成</button>
+                    </div>
+
+                    <button onClick={handleCreateUser} className="w-full bg-slate-800 text-white font-bold py-4 rounded-xl">このユーザーを登録する</button>
+                </div>
+                {status && <p className="mt-4 font-bold text-amber-600">{status}</p>}
+            </div>
+        </div>
+    );
+};
 
         const ConfigErrorScreen = () => (
             <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
