@@ -336,7 +336,7 @@ return (
                     {profile.name ? profile.name[0] : '?'}
                 </div>
                 <h3 className="text-xl font-bold text-slate-800">{profile.name}</h3>
-                <p className="text-sm text-slate-500 mt-1">ログインID: {user.email}</p>
+                <p className="text-sm text-slate-500 mt-1">ログインID: {user.email.replace('@teamsync.local', '')}</p>
             </div>
             
             <div className="bg-slate-50 p-4 rounded-2xl mb-8">
@@ -389,7 +389,7 @@ return (
                 <form onSubmit={handleLogin} className="space-y-4">
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">ログインID</label>
-                        <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="IDを入力" className="w-full border rounded-xl px-4 py-3" />
+                        <input type="text" required value={email} onChange={e => setEmail(e.target.value)} placeholder="ログインID（半角英数）" className="w-full border rounded-xl px-4 py-3" />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">パスワード</label>
@@ -542,8 +542,8 @@ return (
                                 
                                 <div>
                                     <div className="font-bold text-slate-800 flex items-center gap-3 text-sm md:text-base">
-                                    <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs uppercase">{u.name ? u.name[0] : '?'}</div>
-                                    {u.name || '名前未設定'} <span className="text-xs text-slate-400 font-normal">({u.email})</span>
+                                        <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs uppercase">{u.name ? u.name[0] : '?'}</div>
+                                        {u.name || '名前未設定'} <span className="text-xs text-slate-400 font-normal">(ID: {u.email.replace('@teamsync.local', '')})</span>
                                         {/* オンラインバッジ */}
                                         {online && (
                                             <span className="flex items-center gap-1.5 text-[10px] text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 font-bold tracking-wide">
