@@ -253,7 +253,7 @@
             const openDetail = (post) => { setSelectedPost(post); setView('detail'); };
 
             return (
-                <div className="max-w-md mx-auto bg-[#f8fafc] min-h-screen shadow-[0_0_40px_rgba(0,0,0,0.05)] relative flex flex-col font-sans text-slate-800">
+                <div className="max-w-5xl mx-auto bg-[#f8fafc] min-h-screen shadow-[0_0_40px_rgba(0,0,0,0.05)] relative flex flex-col font-sans text-slate-800">
                     {/* Glassmorphism Header */}
                     <div className="glass-header px-5 py-3.5 sticky top-0 z-20 pt-safe flex items-center justify-between transition-all">
                         {view !== 'list' ? (
@@ -302,7 +302,7 @@
 
                     {/* FAB Button */}
                     {view === 'list' && (
-                        <button onClick={() => openForm()} className="fixed bottom-8 right-1/2 translate-x-[160px] w-14 h-14 bg-gradient-to-br from-primary to-accent text-white rounded-full shadow-[0_8px_20px_rgba(59,130,246,0.35)] flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300 z-20">
+                        <button onClick={() => openForm()} className="fixed bottom-8 right-6 md:bottom-10 md:right-10 w-14 h-14 bg-gradient-to-br from-primary to-accent text-white rounded-full shadow-[0_8px_20px_rgba(59,130,246,0.35)] flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300 z-20">
                             <IconPlus />
                         </button>
                     )}
@@ -370,7 +370,7 @@
             }
 
             return (
-                <div className="p-4 space-y-4 pb-24">
+                <div className="p-4 md:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">
                     {posts.map((post, idx) => {
                         const lastRead = profile.readStatus?.[post.id] || 0;
                         const isNew = post.createdAt === post.updatedAt && post.createdAt > lastRead;
@@ -379,14 +379,14 @@
 
                         return (
                             <div key={post.id} onClick={() => onOpen(post)} 
-                                 className="group bg-white rounded-3xl p-5 shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100/60 cursor-pointer hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-0.5 animate-slide-up"
+     className="group bg-white rounded-3xl p-5 shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100/60 cursor-pointer hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-0.5 animate-slide-up flex flex-col"
                                  style={{ animationDelay: `${idx * 0.05}s` }}>
                                 
                                 <div className="flex items-start justify-between mb-3 gap-2">
                                     <h2 className="font-bold text-slate-800 text-[17px] leading-snug line-clamp-2">{post.title}</h2>
                                     <div className="flex flex-col gap-1 items-end shrink-0">
-                                        {isNew && <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-full border border-blue-100">✨ New</span>}
-                                        {isUpdated && <span className="bg-amber-50 text-amber-600 text-[10px] font-bold px-2 py-1 rounded-full border border-amber-100">🔄 変更あり</span>}
+                                        {isNew && <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-full border border-blue-100">New</span>}
+                                        {isUpdated && <span className="bg-amber-50 text-amber-600 text-[10px] font-bold px-2 py-1 rounded-full border border-amber-100">変更あり</span>}
                                     </div>
                                 </div>
                                 
@@ -398,7 +398,7 @@
                                     </div>
                                 )}
                                 
-                                <div className="flex items-center justify-between text-xs text-slate-400 font-medium pt-2 border-t border-slate-50">
+                                <div className="mt-auto pt-4 flex items-center justify-between text-xs text-slate-400 font-medium border-t border-slate-50">
                                     <div className="flex items-center gap-2">
                                         <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold">{post.authorName[0]}</div>
                                         <span>{post.authorName}</span>
@@ -442,7 +442,7 @@
 
             return (
                 <div className="flex flex-col min-h-full bg-white animate-fade-in pb-32">
-                    <div className="p-6">
+                    <div className="p-6 md:p-10 max-w-3xl mx-auto w-full">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-lg">{post.authorName[0]}</div>
                             <div>
@@ -509,7 +509,7 @@
                     </div>
 
                     {/* Floating Comment Input (Glassmorphism) */}
-                    <div className="fixed bottom-6 left-4 right-4 max-w-md mx-auto z-10 pb-safe">
+                    <div className="fixed bottom-6 left-4 right-4 max-w-3xl mx-auto z-10 pb-safe">
                         <div className="glass-panel rounded-full p-1.5 pl-5 flex items-center shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                             <input 
                                 type="text" value={comment} onChange={e => setComment(e.target.value)}
@@ -578,8 +578,9 @@
             };
 
             return (
-                <div className="p-6 bg-white min-h-full animate-fade-in flex flex-col pb-safe">
-                    <h2 className="text-xl font-bold text-slate-800 mb-6">{isEdit ? 'マニュアルの編集' : '新規作成'}</h2>
+    <div className="p-6 md:p-10 bg-white min-h-full animate-fade-in flex flex-col items-center pb-safe">
+        <div className="w-full max-w-3xl flex flex-col flex-1">
+            <h2 className="text-xl font-bold text-slate-800 mb-6">{isEdit ? 'マニュアルの編集' : '新規作成'}</h2>
                     
                     <div className="space-y-6 flex-1">
                         <div>
@@ -638,6 +639,7 @@
                             {saving ? '保存中...' : (isEdit ? '更新する' : '投稿する')}
                         </button>
                     </div>
+                </div>
                 </div>
             );
         };
