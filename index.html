@@ -216,90 +216,86 @@
 
             // 3. Data Fetching
             React.useEffect(() => {
-                if (!db || !user) return;
-                const { doc, onSnapshot, collection } = window.firebaseModules;
-                
-                const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
-                const unsubProfile = onSnapshot(profileRef, (docSnap) => {
-                    if (docSnap.exists()) setProfile(docSnap.data());
-                    else setProfile({ isNew: true });
-                }, console.error);
+    if (!db || !user) return;
+    const { doc, onSnapshot, collection } = window.firebaseModules;
+    
+    // ユーザー情報の取得先を userList に変更
+    const userRef = doc(db, 'artifacts', appId, 'userList', user.uid);
+    const unsubProfile = onSnapshot(userRef, (docSnap) => {
+        if (docSnap.exists()) {
+            setProfile(docSnap.data());
+        } else {
+            // 管理者の初期ログイン時など、データがない場合の予備
+            setProfile({ name: user.email.split('@')[0], readStatus: {} });
+        }
+    }, console.error);
 
-                const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
-                const unsubPosts = onSnapshot(postsRef, (snap) => {
-                    let loaded = [];
-                    snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
-                    loaded.sort((a, b) => b.updatedAt - a.updatedAt);
-                    setPosts(loaded);
-                }, console.error);
+    const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
+    const unsubPosts = onSnapshot(postsRef, (snap) => {
+        let loaded = [];
+        snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
+        loaded.sort((a, b) => b.updatedAt - a.updatedAt);
+        setPosts(loaded);
+    }, console.error);
 
-                return () => { unsubProfile(); unsubPosts(); };
-            }, [db, user, appId]);
+    return () => { unsubProfile(); unsubPosts(); };
+}, [db, user, appId]);
 
-            if (configError) return <ConfigErrorScreen />;
-            if (!fbReady) return <div className="min-h-screen flex items-center justify-center text-slate-400">システムの読み込み中...</div>;
+// Routing & 画面表示の分岐
+if (!fbReady) return <div className="min-h-screen flex items-center justify-center text-slate-400">システムの読み込み中...</div>;
+if (!user) return <LoginScreen auth={auth} />;
+if (!profile) return <div className="min-h-screen flex items-center justify-center text-slate-400">読み込み中...</div>;
 
-            // ログインしていない場合はログイン画面を表示
-            if (!user) return <LoginScreen auth={auth} />;
-            
-            // 管理画面モード
-            if (view === 'admin' && isAdmin) {
-                return <AdminPanel auth={auth} db={db} appId={appId} onBack={() => setView('list')} />;
-            }
-            
-            // プロフィール未設定（初回ログイン時のみ）
-            if (!profile) return <div className="min-h-screen flex items-center justify-center text-slate-400">プロファイル読み込み中...</div>;
-            if (profile.isNew) return <WelcomeScreen db={db} appId={appId} userId={user.uid} />;
+if (view === 'admin' && isAdmin) return <AdminPanel auth={auth} db={db} appId={appId} onBack={() => setView('list')} />;
+if (view === 'account') return <AccountScreen user={user} profile={profile} auth={auth} onBack={() => setView('list')} />;
 
-            // Handlers
-            const goHome = () => { setView('list'); setSelectedPost(null); };
-            const openForm = (post = null) => { setSelectedPost(post); setView('form'); };
-            const openDetail = (post) => { setSelectedPost(post); setView('detail'); };
+// Handlers
+const goHome = () => { setView('list'); setSelectedPost(null); };
+const openForm = (post = null) => { setSelectedPost(post); setView('form'); };
+const openDetail = (post) => { setSelectedPost(post); setView('detail'); };
 
-            return (
-                <div className="max-w-5xl mx-auto bg-[#f8fafc] min-h-screen shadow-[0_0_40px_rgba(0,0,0,0.05)] relative flex flex-col font-sans text-slate-800">
-                    {/* Glassmorphism Header */}
-                    <div className="glass-header px-5 py-3.5 sticky top-0 z-20 pt-safe flex items-center justify-between transition-all">
-                        {view !== 'list' ? (
-                            <button onClick={goHome} className="p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100/50 rounded-full transition-all">
-                                <IconArrowLeft />
-                            </button>
-                        ) : (
-                            <div className="flex items-center gap-3 animate-fade-in">
-                                <div className="w-9 h-9 bg-gradient-to-br from-primary to-accent text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-lg shadow-primary/30">
-                                    T
-                                </div>
-                                <div className="flex flex-col">
-                                    <h1 className="font-bold text-slate-800 text-lg leading-none tracking-tight">TeamSync</h1>
-                                    <span className="text-[10px] text-slate-500 font-medium mt-1">チーム情報共有</span>
-                                </div>
-                            </div>
-                        )}
-                        
-                        <div className="flex items-center gap-2">
-                            {isAdmin && view === 'list' && (
-                                <button onClick={() => setView('admin')} className="p-2 text-slate-500 hover:text-primary rounded-full transition-all">
-                                        <IconSettings size={20} />
-                                    </button>
-                                )}
-                                <button onClick={() => window.firebaseModules.signOut(auth)} className="text-xs text-red-500 font-bold px-3 py-1.5 bg-red-50 hover:bg-red-100 rounded-full transition-all">
-                                    ログアウト
-                                </button>
-                            {view === 'list' && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-full shadow-sm border border-slate-100">
-                                    <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold uppercase">
-                                        {profile.name[0]}
-                                    </div>
-                                    <span className="text-xs font-semibold text-slate-600">{profile.name}</span>
-                                </div>
-                            )}
-                            {view === 'detail' && (
-                                <button onClick={() => openForm(selectedPost)} className="p-2 -mr-2 text-slate-500 hover:text-primary hover:bg-slate-100/50 rounded-full transition-all">
-                                    <IconEdit size={20} />
-                                </button>
-                            )}
-                        </div>
+return (
+    <div className="max-w-5xl mx-auto bg-[#f8fafc] min-h-screen shadow-[0_0_40px_rgba(0,0,0,0.05)] relative flex flex-col font-sans text-slate-800">
+        {/* Glassmorphism Header */}
+        <div className="glass-header px-5 py-3.5 sticky top-0 z-20 pt-safe flex items-center justify-between transition-all">
+            {view !== 'list' ? (
+                <button onClick={goHome} className="p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100/50 rounded-full transition-all">
+                    <IconArrowLeft />
+                </button>
+            ) : (
+                <div className="flex items-center gap-3 animate-fade-in">
+                    <div className="w-9 h-9 bg-gradient-to-br from-primary to-accent text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-lg shadow-primary/30">T</div>
+                    <div className="flex flex-col">
+                        <h1 className="font-bold text-slate-800 text-lg leading-none tracking-tight">TeamSync</h1>
+                        <span className="text-[10px] text-slate-500 font-medium mt-1">チーム情報共有</span>
                     </div>
+                </div>
+            )}
+            
+            <div className="flex items-center gap-2">
+                {isAdmin && view === 'list' && (
+                    <button onClick={() => setView('admin')} className="p-2 text-slate-500 hover:text-primary rounded-full transition-all">
+                        <IconSettings size={20} />
+                    </button>
+                )}
+                
+                {/* ユーザーのアイコンをタップ可能にする */}
+                {view === 'list' && (
+                    <button onClick={() => setView('account')} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-full shadow-sm border border-slate-100 hover:bg-slate-50 transition-all">
+                        <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold uppercase">
+                            {profile.name ? profile.name[0] : '?'}
+                        </div>
+                        <span className="text-xs font-semibold text-slate-600">{profile.name}</span>
+                    </button>
+                )}
+                
+                {view === 'detail' && isAdmin && (
+                    <button onClick={() => openForm(selectedPost)} className="p-2 -mr-2 text-slate-500 hover:text-primary hover:bg-slate-100/50 rounded-full transition-all">
+                        <IconEdit size={20} />
+                    </button>
+                )}
+            </div>
+        </div>
 
                     {/* Main Content Area */}
                     <div className="flex-1 overflow-y-auto hide-scrollbar relative">
@@ -323,6 +319,38 @@
         };
 
         // --- Screens ---
+
+        const AccountScreen = ({ user, profile, auth, onBack }) => (
+    <div className="p-6 md:p-10 max-w-2xl mx-auto w-full min-h-screen animate-fade-in flex flex-col">
+        <div className="flex items-center justify-between mb-8">
+            <button onClick={onBack} className="text-slate-500 hover:text-slate-800 flex items-center gap-2 transition-colors">
+                <IconArrowLeft /> 戻る
+            </button>
+        </div>
+        
+        <h2 className="text-2xl font-bold mb-8 text-slate-800">アカウント情報</h2>
+        
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex-1">
+            <div className="flex flex-col items-center justify-center mb-8">
+                <div className="w-20 h-20 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-2xl font-bold uppercase mb-4">
+                    {profile.name ? profile.name[0] : '?'}
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">{profile.name}</h3>
+                <p className="text-sm text-slate-500 mt-1">ログインID: {user.email}</p>
+            </div>
+            
+            <div className="bg-slate-50 p-4 rounded-2xl mb-8">
+                <p className="text-sm text-slate-600 text-center leading-relaxed">
+                    お名前やパスワードの変更が必要な場合は、<br/>システム管理者へお問い合わせください。
+                </p>
+            </div>
+
+            <button onClick={() => window.firebaseModules.signOut(auth)} className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors">
+                ログアウト
+            </button>
+        </div>
+    </div>
+);
 
         const LoginScreen = ({ auth }) => {
     const [email, setEmail] = React.useState('');
@@ -376,6 +404,7 @@
 
         const AdminPanel = ({ auth, db, appId, onBack }) => {
     const [newUserId, setNewUserId] = React.useState('');
+    const [newUserName, setNewUserName] = React.useState(''); // 追加
     const [generatedPass, setGeneratedPass] = React.useState('');
     const [status, setStatus] = React.useState('');
     const [users, setUsers] = React.useState([]); // ユーザー一覧を保存する場所
@@ -417,15 +446,19 @@
             // データベースの「ユーザーリスト」にも情報を保存する
             await setDoc(doc(db, 'artifacts', appId, 'userList', userCred.user.uid), {
                 email: dummyEmail,
+                name: newUserName, // 本名を保存
+                initialPassword: generatedPass, // 初回パスワードを保存
                 createdAt: Date.now(),
                 lastActiveAt: 0,
-                isActive: true // 有効かどうかのフラグ
+                isActive: true,
+                readStatus: {}
             });
-            
+                        
             await signOut(tempAuth);
             
             setStatus(`作成成功！ ID: ${dummyEmail} / Pass: ${generatedPass}`);
             setNewUserId('');
+            setNewUserName(''); // 追加
             setGeneratedPass('');
         } catch (e) {
             console.error(e);
@@ -471,6 +504,11 @@
                         <label className="block text-xs font-bold text-slate-500 mb-1">希望するID</label>
                         <input type="text" value={newUserId} onChange={e => setNewUserId(e.target.value)} placeholder="例: yamada" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:bg-white focus:outline-none focus:border-primary transition-all" />
                     </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">ユーザーの本名</label>
+                        <input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="例: 山田 太郎" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:bg-white focus:outline-none focus:border-primary transition-all" />
+                    </div>
                     
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">パスワード</label>
@@ -504,8 +542,8 @@
                                 
                                 <div>
                                     <div className="font-bold text-slate-800 flex items-center gap-3 text-sm md:text-base">
-                                        <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs uppercase">{u.email[0]}</div>
-                                        {u.email}
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs uppercase">{u.name ? u.name[0] : '?'}</div>
+                                    {u.name || '名前未設定'} <span className="text-xs text-slate-400 font-normal">({u.email})</span>
                                         {/* オンラインバッジ */}
                                         {online && (
                                             <span className="flex items-center gap-1.5 text-[10px] text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 font-bold tracking-wide">
@@ -517,7 +555,8 @@
                                             <span className="text-[10px] text-red-600 bg-red-50 px-2 py-1 rounded-full font-bold">無効化済み</span>
                                         )}
                                     </div>
-                                    <div className="text-xs text-slate-400 mt-2 flex items-center gap-4">
+                                    <div className="text-xs text-slate-500 mt-2 flex flex-col gap-1">
+                                        <span>パスワード: <strong className="text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{u.initialPassword || '手動設定'}</strong></span>
                                         <span>最終アクセス: {u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleString() : '未ログイン'}</span>
                                     </div>
                                 </div>
@@ -552,40 +591,6 @@
                 </p>
             </div>
         );
-
-        const WelcomeScreen = ({ db, appId, userId }) => {
-            const [name, setName] = React.useState('');
-            const saveProfile = async () => {
-                if(!name.trim()) return;
-                const { doc, setDoc } = window.firebaseModules;
-                await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'profile', 'main'), {
-                    name: name.trim(), readStatus: {}
-                });
-            };
-            return (
-                <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-br from-slate-50 via-white to-blue-50 text-center relative overflow-hidden">
-                    <div className="absolute top-[-10%] left-[-10%] w-64 h-64 bg-primary/5 rounded-full blur-3xl"></div>
-                    <div className="absolute bottom-[-10%] right-[-10%] w-64 h-64 bg-accent/5 rounded-full blur-3xl"></div>
-                    
-                    <div className="relative z-10 w-full max-w-sm">
-                        <div className="w-20 h-20 bg-gradient-to-br from-primary to-accent text-white rounded-3xl flex items-center justify-center font-bold text-4xl shadow-xl shadow-primary/20 mx-auto mb-8 animate-slide-up">T</div>
-                        <h1 className="text-2xl font-bold text-slate-800 mb-3 animate-slide-up" style={{animationDelay: '0.1s'}}>TeamSync へようこそ</h1>
-                        <p className="text-slate-500 text-sm mb-10 leading-relaxed animate-slide-up" style={{animationDelay: '0.2s'}}>チーム内で共有されるマニュアルや<br/>最新の指示をリアルタイムで確認できます。</p>
-                        
-                        <div className="animate-slide-up" style={{animationDelay: '0.3s'}}>
-                            <input 
-                                type="text" value={name} onChange={e => setName(e.target.value)}
-                                placeholder="あなたの表示名（例: 山田 太郎）"
-                                className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-4 mb-4 text-center text-slate-800 font-medium focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all shadow-sm"
-                            />
-                            <button onClick={saveProfile} disabled={!name.trim()} className="w-full bg-slate-800 text-white font-bold py-4 rounded-2xl disabled:opacity-40 disabled:bg-slate-300 hover:bg-slate-700 active:scale-[0.98] transition-all shadow-md">
-                                アプリをはじめる
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
 
         const PostList = ({ posts, profile, onOpen }) => {
             if (posts.length === 0) {
