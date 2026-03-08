@@ -330,16 +330,28 @@
     const [error, setError] = React.useState('');
 
     const handleLogin = async (e) => {
-        e.preventDefault();
-        setError('');
-        try {
-            const { signInWithEmailAndPassword } = window.firebaseModules;
-            // セキュリティのため、末尾にドメインを補完して「ID」として見せかけることも可能です
-            await signInWithEmailAndPassword(auth, email, password);
-        } catch (err) {
+    e.preventDefault();
+    setError('');
+    try {
+        const { signInWithEmailAndPassword } = window.firebaseModules;
+        
+        // もし入力されたIDに「@」が無ければ、自動で「@teamsync.local」を付けてあげる親切設計
+        const loginEmail = email.includes('@') ? email : `${email}@teamsync.local`;
+        
+        await signInWithEmailAndPassword(auth, loginEmail, password);
+    } catch (err) {
+        console.error("Firebaseエラー詳細:", err); // 開発者ツール（F12）で原因を確認するため
+        
+        // エラーの種類によってメッセージを変える
+        if (err.code === 'auth/invalid-email') {
+            setError('IDの形式が正しくありません。');
+        } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
             setError('IDまたはパスワードが間違っています。');
+        } else {
+            setError(`エラーが発生しました: ${err.message}`);
         }
-    };
+    }
+};
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
