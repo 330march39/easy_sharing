@@ -204,49 +204,52 @@
             }, []);
 
             // 2. Auth Flow (ID/Pass 認証 ＋ オンライン監視)
-            React.useEffect(() => {
-                if (!auth || !db) return;
-                const { onAuthStateChanged, signOut } = window.firebaseModules;
-                const { doc, getDoc, setDoc, updateDoc } = window.firebaseModules;
+React.useEffect(() => {
+    if (!auth || !db) return;
+    const { onAuthStateChanged, signOut } = window.firebaseModules;
+    const { doc, getDoc, setDoc, updateDoc } = window.firebaseModules;
+
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
+        if (currentUser) {
+            // 現在ログインしようとしているのが管理者かどうかを判定
+            const isAdminEmail = currentUser.email && currentUser.email.includes('admin@');
             
-                const unsub = onAuthStateChanged(auth, async (currentUser) => {
-                    if (currentUser) {
-                        // データベースのユーザーリストを確認
-                        const userRef = doc(db, 'artifacts', appId, 'userList', currentUser.uid);
-                        const userSnap = await getDoc(userRef);
-                        
-                        // もし「完全削除（データが存在しない）」または「一時停止（isActiveがfalse）」されていたら、強制的にログアウトさせる
-                        if (!userSnap.exists() || userSnap.data().isActive === false) {
-                            alert("このアカウントは利用できません。管理者にお問い合わせください。");
-                            await signOut(auth);
-                            setUser(null);
-                            return;
-                        }
+            // データベースのユーザーリストを確認
+            const userRef = doc(db, 'artifacts', appId, 'userList', currentUser.uid);
+            const userSnap = await getDoc(userRef);
             
-                        // 初回ログイン時のデータ作成 ＆ オンライン時間の更新
-                        await setDoc(userRef, {
-                            email: currentUser.email,
-                            lastActiveAt: Date.now(),
-                            isActive: userSnap.exists() ? userSnap.data().isActive : true
-                        }, { merge: true });
+            // 管理者「以外」で、かつ「完全削除（データが存在しない）」または「一時停止（isActiveがfalse）」されている場合は弾く
+            if (!isAdminEmail && (!userSnap.exists() || userSnap.data().isActive === false)) {
+                alert("このアカウントは利用できません。管理者にお問い合わせください。");
+                await signOut(auth);
+                setUser(null);
+                return;
+            }
+
+            // ログイン成功時のデータ作成 ＆ オンライン時間の更新（管理者のデータもここで作られます）
+            await setDoc(userRef, {
+                email: currentUser.email,
+                lastActiveAt: Date.now(),
+                isActive: userSnap.exists() ? userSnap.data().isActive : true
+            }, { merge: true });
+
+            setUser(currentUser);
             
-                        setUser(currentUser);
-                        
-                        // アプリを開いている間、5分おきにオンライン時間を更新する
-                        const interval = setInterval(() => {
-                            updateDoc(userRef, { lastActiveAt: Date.now() }).catch(e => console.error(e));
-                        }, 5 * 60 * 1000); // 5分
-                        
-                        return () => clearInterval(interval);
-                    } else {
-                        setUser(null);
-                    }
-                });
-                return () => unsub();
-            }, [auth, db, appId]);
+            // アプリを開いている間、5分おきにオンライン時間を更新する
+            const interval = setInterval(() => {
+                updateDoc(userRef, { lastActiveAt: Date.now() }).catch(e => console.error(e));
+            }, 5 * 60 * 1000); // 5分
             
-            // 管理者かどうかの判定（メールアドレスに admin@ を含むかで判定）
-            const isAdmin = user && user.email && user.email.includes('admin');
+            return () => clearInterval(interval);
+        } else {
+            setUser(null);
+        }
+    });
+    return () => unsub();
+}, [auth, db, appId]);
+
+// 管理者かどうかの判定（メールアドレスに admin@ を含むかで判定）
+const isAdmin = user && user.email && user.email.includes('admin@');
 
             // 3. Data Fetching
             React.useEffect(() => {
