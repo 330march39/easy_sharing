@@ -211,26 +211,24 @@ React.useEffect(() => {
 
     const unsub = onAuthStateChanged(auth, async (currentUser) => {
         if (currentUser) {
-            // 現在ログインしようとしているのが管理者かどうかを判定
-            const isAdminEmail = currentUser.email && currentUser.email.includes('admin@');
-            
-            // データベースのユーザーリストを確認
             const userRef = doc(db, 'artifacts', appId, 'userList', currentUser.uid);
             const userSnap = await getDoc(userRef);
-            
-            // 管理者「以外」で、かつ「完全削除（データが存在しない）」または「一時停止（isActiveがfalse）」されている場合は弾く
-            if (!isAdminEmail && (!userSnap.exists() || userSnap.data().isActive === false)) {
-                alert("このアカウントは利用できません。管理者にお問い合わせください。");
+
+            // リストに存在し、かつ「一時停止（無効化）」されている場合のみ弾く
+            if (userSnap.exists() && userSnap.data().isActive === false) {
+                alert("このアカウントは一時停止されています。管理者にお問い合わせください。");
                 await signOut(auth);
                 setUser(null);
                 return;
             }
 
-            // ログイン成功時のデータ作成 ＆ オンライン時間の更新（管理者のデータもここで作られます）
+            // データが存在しない場合（過去のアカウントや、リストから完全削除された後）は、
+            // ログイン成功と同時にリスト（データベース）に自動登録して復帰させる
             await setDoc(userRef, {
                 email: currentUser.email,
+                name: userSnap.exists() && userSnap.data().name ? userSnap.data().name : currentUser.email.replace('@easysharing.local', ''),
                 lastActiveAt: Date.now(),
-                isActive: userSnap.exists() ? userSnap.data().isActive : true
+                isActive: true
             }, { merge: true });
 
             setUser(currentUser);
@@ -248,7 +246,7 @@ React.useEffect(() => {
     return () => unsub();
 }, [auth, db, appId]);
 
-// 管理者かどうかの判定（メールアドレスに admin@ を含むかで判定）
+// 管理者かどうかの判定
 const isAdmin = user && user.email && user.email.includes('admin@');
 
             // 3. Data Fetching
@@ -530,6 +528,21 @@ return (
         }
     };
 
+    // ユーザー名の変更
+    const editUserName = async (uid, currentName) => {
+        const newName = prompt("新しい名前を入力してください:", currentName || "");
+        if (newName === null || newName.trim() === "") return;
+        
+        try {
+            const { doc, updateDoc } = window.firebaseModules;
+            await updateDoc(doc(db, 'artifacts', appId, 'userList', uid), {
+                name: newName.trim()
+            });
+        } catch(e) {
+            alert("名前の変更に失敗しました");
+        }
+    };
+
     // オンライン判定（最終アクセスから5分以内ならオンライン）
     const isOnline = (lastActiveAt) => {
         if (!lastActiveAt) return false;
@@ -593,6 +606,9 @@ return (
                                     <div className="font-bold text-slate-800 flex items-center gap-3 text-sm md:text-base">
                                         <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs uppercase">{u.name ? u.name[0] : '?'}</div>
                                         {u.name || '名前未設定'} <span className="text-xs text-slate-400 font-normal">(ID: {u.email.replace('@easysharing.local', '')})</span>
+                                        <button onClick={() => editUserName(u.uid, u.name)} className="p-1 text-slate-400 hover:text-primary transition-colors">
+                                            <IconEdit size={16} />
+                                        </button>
                                         {/* オンラインバッジ */}
                                         {online && (
                                             <span className="flex items-center gap-1.5 text-[10px] text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 font-bold tracking-wide">
@@ -712,8 +728,9 @@ return (
             React.useEffect(() => {
                 if (post.updatedAt > initialRead) {
                     const { doc, setDoc } = window.firebaseModules;
-                    setDoc(doc(db, 'artifacts', appId, 'users', userId, 'profile', 'main'), 
-                           { readStatus: { ...profile.readStatus, [post.id]: Date.now() } }, 
+                    // 保存先を新しい userList コレクションに変更
+                    setDoc(doc(db, 'artifacts', appId, 'userList', userId), 
+                           { readStatus: { ...(profile.readStatus || {}), [post.id]: Date.now() } }, 
                            { merge: true });
                 }
             }, [post.id]);
