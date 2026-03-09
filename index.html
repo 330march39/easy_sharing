@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>TeamSync - チーム情報共有</title>
+    <title>Easy Sharing - マニュアル共有アプリ</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -203,15 +203,49 @@
                 return () => window.removeEventListener('firebaseLoaded', init);
             }, []);
 
-            // 2. Auth Flow
+            // 2. Auth Flow (ID/Pass 認証 ＋ オンライン監視)
             React.useEffect(() => {
-                if (!auth) return;
-                const { onAuthStateChanged } = window.firebaseModules;
-                const unsub = onAuthStateChanged(auth, setUser);
-                return () => unsub();
-            }, [auth]);
+                if (!auth || !db) return;
+                const { onAuthStateChanged, signOut } = window.firebaseModules;
+                const { doc, getDoc, setDoc, updateDoc } = window.firebaseModules;
             
-            // 管理者かどうかの判定（ここではadmin@を含むIDを管理者と仮定。実際の運用に合わせて変更してください）
+                const unsub = onAuthStateChanged(auth, async (currentUser) => {
+                    if (currentUser) {
+                        // データベースのユーザーリストを確認
+                        const userRef = doc(db, 'artifacts', appId, 'userList', currentUser.uid);
+                        const userSnap = await getDoc(userRef);
+                        
+                        // もし「完全削除（データが存在しない）」または「一時停止（isActiveがfalse）」されていたら、強制的にログアウトさせる
+                        if (!userSnap.exists() || userSnap.data().isActive === false) {
+                            alert("このアカウントは利用できません。管理者にお問い合わせください。");
+                            await signOut(auth);
+                            setUser(null);
+                            return;
+                        }
+            
+                        // 初回ログイン時のデータ作成 ＆ オンライン時間の更新
+                        await setDoc(userRef, {
+                            email: currentUser.email,
+                            lastActiveAt: Date.now(),
+                            isActive: userSnap.exists() ? userSnap.data().isActive : true
+                        }, { merge: true });
+            
+                        setUser(currentUser);
+                        
+                        // アプリを開いている間、5分おきにオンライン時間を更新する
+                        const interval = setInterval(() => {
+                            updateDoc(userRef, { lastActiveAt: Date.now() }).catch(e => console.error(e));
+                        }, 5 * 60 * 1000); // 5分
+                        
+                        return () => clearInterval(interval);
+                    } else {
+                        setUser(null);
+                    }
+                });
+                return () => unsub();
+            }, [auth, db, appId]);
+            
+            // 管理者かどうかの判定（メールアドレスに admin@ を含むかで判定）
             const isAdmin = user && user.email && user.email.includes('admin@');
 
             // 3. Data Fetching
@@ -266,8 +300,8 @@ return (
                 <div className="flex items-center gap-3 animate-fade-in">
                     <div className="w-9 h-9 bg-gradient-to-br from-primary to-accent text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-lg shadow-primary/30">T</div>
                     <div className="flex flex-col">
-                        <h1 className="font-bold text-slate-800 text-lg leading-none tracking-tight">TeamSync</h1>
-                        <span className="text-[10px] text-slate-500 font-medium mt-1">チーム情報共有</span>
+                        <h1 className="font-bold text-slate-800 text-lg leading-none tracking-tight">Easy Sharing</h1>
+                        <span className="text-[10px] text-slate-500 font-medium mt-1">マニュアル共有アプリ</span>
                     </div>
                 </div>
             )}
@@ -289,7 +323,7 @@ return (
                     </button>
                 )}
                 
-                {view === 'detail' && isAdmin && (
+                {view === 'detail' && (
                     <button onClick={() => openForm(selectedPost)} className="p-2 -mr-2 text-slate-500 hover:text-primary hover:bg-slate-100/50 rounded-full transition-all">
                         <IconEdit size={20} />
                     </button>
@@ -363,8 +397,8 @@ return (
     try {
         const { signInWithEmailAndPassword } = window.firebaseModules;
         
-        // もし入力されたIDに「@」が無ければ、自動で「@teamsync.local」を付けてあげる親切設計
-        const loginEmail = email.includes('@') ? email : `${email}@teamsync.local`;
+        // もし入力されたIDに「@」が無ければ、自動で「@easysharing.local」を付けてあげる親切設計
+        const loginEmail = email.includes('@') ? email : `${email}@easysharing.local`;
         
         await signInWithEmailAndPassword(auth, loginEmail, password);
     } catch (err) {
@@ -384,7 +418,7 @@ return (
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
             <div className="w-full max-w-sm bg-white rounded-3xl p-8 shadow-lg">
-                <h1 className="text-2xl font-bold text-center mb-6">TeamSync</h1>
+                <h1 className="text-2xl font-bold text-center mb-6">Easy Sharing</h1>
                 {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
                 <form onSubmit={handleLogin} className="space-y-4">
                     <div>
@@ -440,7 +474,7 @@ return (
             const tempApp = initializeApp(USER_FIREBASE_CONFIG, "TempApp" + Date.now());
             const tempAuth = getAuth(tempApp);
             
-            const dummyEmail = newUserId.includes('@') ? newUserId : `${newUserId}@teamsync.local`;
+            const dummyEmail = newUserId.includes('@') ? newUserId : `${newUserId}@easysharing.local`;
             const userCred = await createUserWithEmailAndPassword(tempAuth, dummyEmail, generatedPass);
             
             // データベースの「ユーザーリスト」にも情報を保存する
@@ -478,6 +512,18 @@ return (
             });
         } catch(e) {
             alert("状態の変更に失敗しました");
+        }
+    };
+
+     // 完全削除（リストから消去）
+    const deleteUserFromList = async (uid) => {
+        if (!confirm(`このユーザーをリストから完全に削除しますか？\n（※Firebase側での完全なアカウント削除は手動で行ってください）`)) return;
+        
+        try {
+            const { doc, deleteDoc } = window.firebaseModules;
+            await deleteDoc(doc(db, 'artifacts', appId, 'userList', uid));
+        } catch(e) {
+            alert("削除に失敗しました");
         }
     };
 
@@ -561,14 +607,22 @@ return (
                                     </div>
                                 </div>
                                 
-                                {/* 削除・復元ボタン */}
-                                {u.email !== 'admin@teamsync.local' && ( // 管理者自身は削除できないように保護
-                                    <button 
-                                        onClick={() => toggleUserStatus(u.uid, u.isActive)} 
-                                        className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${u.isActive ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
-                                    >
-                                        {u.isActive ? '削除する' : 'アカウント復元'}
-                                    </button>
+                                {/* 無効化・復元・完全削除ボタン */}
+                                {u.email !== 'admin@easysharing.local' && (
+                                    <div className="shrink-0 flex flex-col md:flex-row gap-2">
+                                        <button 
+                                            onClick={() => toggleUserStatus(u.uid, u.isActive)} 
+                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${u.isActive ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                                        >
+                                            {u.isActive ? '一時停止' : 'アカウント復元'}
+                                        </button>
+                                        <button 
+                                            onClick={() => deleteUserFromList(u.uid)} 
+                                            className="px-4 py-2 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                        >
+                                            完全削除
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         );
