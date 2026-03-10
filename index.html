@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Easy Sharing - マニュアル共有アプリ</title>
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#f8fafc">
+    <link rel="apple-touch-icon" href="/icon-192.png"> <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1193,7 +1198,7 @@ return (
 
             {/* 確認ポップアップ */}
             {showConfirm && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6">
                     <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-slide-up">
                         <h3 className="text-lg font-bold text-slate-800 mb-2">変更内容の確認</h3>
                         <p className="text-xs text-slate-500 mb-4">自動抽出された変更点です。手動で書き換えることもできます。</p>
@@ -1210,7 +1215,7 @@ return (
 
             {/* ▼▼▼ ここから追加（AI生成中のローディング画面） ▼▼▼ */}
             {isGenerating && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6">
                     <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col items-center animate-slide-up text-center">
                         {/* くるくる回るスピナー（ローディングアニメーション） */}
                         <div className="w-12 h-12 border-4 border-slate-100 border-t-primary rounded-full animate-spin mb-6"></div>
@@ -1226,6 +1231,16 @@ return (
 };
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+    </script>
+    <script>
+        // Service Workerの登録（PWA必須要件）
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('ServiceWorker 登録成功', reg.scope))
+                    .catch(err => console.log('ServiceWorker 登録失敗', err));
+            });
+        }
     </script>
 </body>
 </html>
