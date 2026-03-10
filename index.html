@@ -1010,6 +1010,11 @@ return (
             
         } catch (err) {
             console.error("AI Generation Failed, Fallback to normal transcript:", err);
+            
+            // ▼▼▼ ここを追加（AIが使えない時のポップアップ通知） ▼▼▼
+            alert('AIサーバーにアクセスできないため、文字起こしデータをそのまま掲載します。必要に応じて手動で修正してください。');
+            // ▲▲▲ ここまで ▲▲▲
+
             // フォールバック：通常の文字起こしとして追記
             const fallbackText = "【音声メモ】\n" + textToProcess;
             setContent(prev => prev ? prev + '\n\n' + fallbackText : fallbackText);
@@ -1199,6 +1204,20 @@ return (
                             <button onClick={() => setShowConfirm(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl">戻る</button>
                             <button onClick={() => { setShowConfirm(false); submitFinal(autoDiffText); }} className="flex-1 bg-primary text-white font-bold py-3 rounded-xl shadow-md">これで保存</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ▼▼▼ ここから追加（AI生成中のローディング画面） ▼▼▼ */}
+            {isGenerating && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col items-center animate-slide-up text-center">
+                        {/* くるくる回るスピナー（ローディングアニメーション） */}
+                        <div className="w-12 h-12 border-4 border-slate-100 border-t-primary rounded-full animate-spin mb-6"></div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">AIがマニュアルを生成中...</h3>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                            しばらくお待ちください。<br/>文章の長さによっては十数秒かかる場合があります。
+                        </p>
                     </div>
                 </div>
             )}
