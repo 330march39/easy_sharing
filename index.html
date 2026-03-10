@@ -891,90 +891,107 @@ return (
     const [isRecording, setIsRecording] = React.useState(false);
     const [isGenerating, setIsGenerating] = React.useState(false);
     const [transcript, setTranscript] = React.useState('');
-    const transcriptRef = React.useRef(''); // 最新のテキストを確実に保持するための裏方変数
+    const transcriptRef = React.useRef(''); // 最新のテキストを確実に保持
     const recognitionRef = React.useRef(null);
+    const isRecordingRef = React.useRef(false); // 録音状態を裏で確実に管理するためのRef
 
     const [showConfirm, setShowConfirm] = React.useState(false);
     const [autoDiffText, setAutoDiffText] = React.useState('');
     const [saving, setSaving] = React.useState(false);
 
-    // 音声認識の初期化と設定
+    // 音声認識の初期化（※最初に1回だけ実行するように修正）
     React.useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true; // 話している途中の文字も取得する
-            recognition.lang = 'ja-JP';
+        if (!SpeechRecognition) {
+            console.warn("このブラウザは音声認識に対応していません。");
+            return;
+        }
 
-            recognition.onresult = (event) => {
-                let finalTranscript = '';
-                let interimTranscript = '';
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'ja-JP';
 
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + ' ';
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
+        recognition.onresult = (event) => {
+            let finalTranscript = '';
+            let interimTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscript += event.results[i][0].transcript + ' ';
+                } else {
+                    interimTranscript += event.results[i][0].transcript;
                 }
-                
-                // 確定したテキストを裏側の変数（Ref）に確実に保存
-                if (finalTranscript) {
-                    transcriptRef.current += finalTranscript;
-                }
-                
-                // 画面には「確定済みのテキスト ＋ 今まさに話している途中のテキスト」を表示
-                setTranscript(transcriptRef.current + interimTranscript);
-            };
+            }
             
-            recognition.onerror = (e) => {
-                console.error("Speech Recognition Error:", e.error);
-                if (e.error === 'not-allowed') {
-                    alert('マイクの使用が許可されていません。ブラウザのアドレスバーの左側からマイクを許可してください。');
-                }
+            // 確定したテキストを保存
+            if (finalTranscript) {
+                transcriptRef.current += finalTranscript;
+            }
+            
+            // 画面表示用
+            setTranscript(transcriptRef.current + interimTranscript);
+        };
+        
+        recognition.onerror = (e) => {
+            // aborted(手動停止) や no-speech(無音) はよくある挙動なので無視してOK
+            if (e.error === 'not-allowed') {
+                alert('マイクの使用が許可されていません。ブラウザのアドレスバーの左側からマイクを許可してください。');
                 setIsRecording(false);
-            };
+                isRecordingRef.current = false;
+            } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
+                console.warn("Speech Recognition Error:", e.error);
+            }
+        };
 
-            // 無音状態が続いて自動でマイクが切れた時の処理
-            recognition.onend = () => {
-                if (isRecording) {
-                    setIsRecording(false);
-                    // 自動で切れた場合でも、そこまでの内容でAI生成をスタート
+        // 何らかの理由（無音状態が長く続いた等）で自動でマイクが切れた時の処理
+        recognition.onend = () => {
+            if (isRecordingRef.current) {
+                setIsRecording(false);
+                isRecordingRef.current = false;
+                
+                // 勝手に切れた場合でも、それまでのテキストがあればAIに投げる
+                if (transcriptRef.current.trim()) {
                     generateManualWithAI(transcriptRef.current);
                 }
-            };
+            }
+        };
 
-            recognitionRef.current = recognition;
-        } else {
-            console.warn("このブラウザは音声認識に対応していません。ChromeかSafariをご利用ください。");
-        }
-    }, [isRecording]); // 依存配列にisRecordingを追加
+        recognitionRef.current = recognition;
+    }, []); // ← ここを空の配列 [] にしたのが最大の修正点です
 
     // マイクボタンを押したときの処理
     const toggleRecording = () => {
-        if (isRecording) {
-            recognitionRef.current?.stop();
+        if (isRecordingRef.current) {
+            // 録音を【停止】する時の処理
             setIsRecording(false);
-            // 録音停止時に、確実に最新のテキスト（Ref）を渡してAIに投げる
-            generateManualWithAI(transcriptRef.current); 
+            isRecordingRef.current = false;
+            recognitionRef.current?.stop();
+            
+            // 手動で止めたテキストをAIに投げる
+            if (transcriptRef.current.trim()) {
+                generateManualWithAI(transcriptRef.current);
+            }
         } else {
+            // 録音を【開始】する時の処理
             setTranscript('');
-            transcriptRef.current = ''; // Refもリセット
+            transcriptRef.current = ''; 
+            setIsRecording(true);
+            isRecordingRef.current = true;
+            
             try {
                 recognitionRef.current?.start();
-                setIsRecording(true);
             } catch (e) {
                 console.error("録音開始エラー:", e);
+                setIsRecording(false);
+                isRecordingRef.current = false;
             }
         }
     };
 
-    // AIでマニュアルを生成する処理（引数でテキストを受け取るように変更）
+    // AIでマニュアルを生成する処理
     const generateManualWithAI = async (textToProcess) => {
-        if (!textToProcess || !textToProcess.trim()) {
-            return; // 録音内容が空の場合は何もしない
-        }
+        if (!textToProcess || !textToProcess.trim()) return;
 
         setIsGenerating(true);
         try {
