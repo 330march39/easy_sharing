@@ -250,21 +250,28 @@ React.useEffect(() => {
 const isAdmin = user && user.email && user.email.includes('admin@');
 
             // 3. Data Fetching
-            React.useEffect(() => {
+const [userMap, setUserMap] = React.useState({}); // 追加：全ユーザーの名前辞書
+
+React.useEffect(() => {
     if (!db || !user) return;
     const { doc, onSnapshot, collection } = window.firebaseModules;
     
-    // ユーザー情報の取得先を userList に変更
+    // ① 自分のプロフィール取得
     const userRef = doc(db, 'artifacts', appId, 'userList', user.uid);
     const unsubProfile = onSnapshot(userRef, (docSnap) => {
-        if (docSnap.exists()) {
-            setProfile(docSnap.data());
-        } else {
-            // 管理者の初期ログイン時など、データがない場合の予備
-            setProfile({ name: user.email.split('@')[0], readStatus: {} });
-        }
+        if (docSnap.exists()) setProfile(docSnap.data());
+        else setProfile({ name: user.email.replace('@easysharing.local', ''), readStatus: {} });
     }, console.error);
 
+    // ② 全ユーザーの名前リストを取得（名前の動的変更用）
+    const usersRef = collection(db, 'artifacts', appId, 'userList');
+    const unsubUsers = onSnapshot(usersRef, (snap) => {
+        let umap = {};
+        snap.forEach(d => { umap[d.id] = d.data(); });
+        setUserMap(umap);
+    }, console.error);
+
+    // ③ 投稿一覧を取得
     const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
     const unsubPosts = onSnapshot(postsRef, (snap) => {
         let loaded = [];
@@ -273,7 +280,7 @@ const isAdmin = user && user.email && user.email.includes('admin@');
         setPosts(loaded);
     }, console.error);
 
-    return () => { unsubProfile(); unsubPosts(); };
+    return () => { unsubProfile(); unsubUsers(); unsubPosts(); };
 }, [db, user, appId]);
 
 // Routing & 画面表示の分岐
@@ -334,9 +341,9 @@ return (
 
                     {/* Main Content Area */}
                     <div className="flex-1 overflow-y-auto hide-scrollbar relative">
-                        {view === 'list' && <PostList posts={posts} profile={profile} onOpen={openDetail} />}
+                        {view === 'list' && <PostList posts={posts} profile={profile} userMap={userMap} onOpen={openDetail} />}
                         {view === 'detail' && selectedPost && (
-                            <PostDetail post={posts.find(p => p.id === selectedPost.id) || selectedPost} profile={profile} db={db} appId={appId} userId={user.uid} />
+                            <PostDetail post={posts.find(p => p.id === selectedPost.id) || selectedPost} profile={profile} db={db} appId={appId} userId={user.uid} userMap={userMap} />
                         )}
                         {view === 'form' && (
                             <PostForm post={selectedPost} profile={profile} db={db} appId={appId} userId={user.uid} onSave={goHome} onCancel={selectedPost ? () => setView('detail') : goHome} />
@@ -437,26 +444,26 @@ return (
     );
 };
 
-        const AdminPanel = ({ auth, db, appId, onBack }) => {
+        const AdminPanel = ({ auth, db, appId, onBack,userMap }) => {
     const [newUserId, setNewUserId] = React.useState('');
     const [newUserName, setNewUserName] = React.useState(''); // 追加
+    const [activityLogs, setActivityLogs] = React.useState([]);
     const [generatedPass, setGeneratedPass] = React.useState('');
     const [status, setStatus] = React.useState('');
     const [users, setUsers] = React.useState([]); // ユーザー一覧を保存する場所
 
     // データベースからユーザー一覧をリアルタイムに取得
     React.useEffect(() => {
-        const { collection, onSnapshot } = window.firebaseModules;
-        const usersRef = collection(db, 'artifacts', appId, 'userList');
-        const unsub = onSnapshot(usersRef, (snap) => {
-            const loaded = [];
-            snap.forEach(d => loaded.push({ uid: d.id, ...d.data() }));
-            // 作成日順に並び替え
-            loaded.sort((a, b) => b.createdAt - a.createdAt);
-            setUsers(loaded);
-        });
-        return () => unsub();
-    }, [db, appId]);
+    const { collection, onSnapshot } = window.firebaseModules;
+    const logsRef = collection(db, 'artifacts', appId, 'activityLogs');
+    const unsubLogs = onSnapshot(logsRef, (snap) => {
+        const loaded = [];
+        snap.forEach(d => loaded.push({ id: d.id, ...d.data() }));
+        loaded.sort((a, b) => b.createdAt - a.createdAt);
+        setActivityLogs(loaded.slice(0, 50)); // 最新の50件のみ表示
+    });
+    return () => unsubLogs();
+}, [db, appId]);
 
     const generatePassword = () => {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
@@ -648,6 +655,26 @@ return (
                     })}
                 </div>
             </div>
+            {/* 操作ログ表示エリア */}
+<div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm mt-8">
+    <h3 className="font-bold mb-6 text-slate-800">システム操作ログ</h3>
+    <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+        {activityLogs.length === 0 && <p className="text-slate-400 text-sm">ログはまだありません。</p>}
+        {activityLogs.map(log => (
+            <div key={log.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm">
+                <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-slate-700">{userMap[log.uid]?.name || '不明なユーザー'}</span>
+                    <span className="text-[11px] text-slate-400">{new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+                <div className="text-slate-600">
+                    <span className="font-bold text-primary mr-2">[{log.action}]</span>
+                    {log.target}
+                </div>
+                {log.detail && <div className="mt-1 text-xs text-slate-500 bg-white p-2 rounded border border-slate-100">変更点: {log.detail}</div>}
+            </div>
+        ))}
+    </div>
+</div>
         </div>
     );
 };
@@ -665,7 +692,7 @@ return (
             </div>
         );
 
-        const PostList = ({ posts, profile, onOpen }) => {
+        const PostList = ({ posts, profile, userMap, onOpen }) => {
             if (posts.length === 0) {
                 return (
                     <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center animate-fade-in">
@@ -706,8 +733,8 @@ return (
                                 
                                 <div className="mt-auto pt-4 flex items-center justify-between text-xs text-slate-400 font-medium border-t border-slate-50">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold">{post.authorName[0]}</div>
-                                        <span>{post.authorName}</span>
+                                        <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold">{userMap[post.authorId]?.name || post.authorName}</div>
+                                        <span>{userMap[post.authorId]?.name || post.authorName}</span>
                                     </div>
                                     <div className="flex items-center gap-3">
                                         {commentCount > 0 && <div className="flex items-center gap-1 text-slate-500"><IconMessageCircle size={14}/> {commentCount}</div>}
@@ -721,7 +748,7 @@ return (
             );
         };
 
-        const PostDetail = ({ post, profile, db, appId, userId }) => {
+        const PostDetail = ({ post, profile, db, appId, userId, userMap }) => {
             const [comment, setComment] = React.useState('');
             const [initialRead] = React.useState(profile.readStatus?.[post.id] || 0);
 
@@ -737,10 +764,14 @@ return (
 
             const submitComment = async () => {
                 if(!comment.trim()) return;
-                const { doc, updateDoc } = window.firebaseModules;
+                const { doc, updateDoc, setDoc, collection } = window.firebaseModules;
                 const newComment = { id: crypto.randomUUID(), authorId: userId, authorName: profile.name, text: comment.trim(), createdAt: Date.now() };
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'posts', post.id), {
                     comments: [...(post.comments || []), newComment]
+                });
+                // 追加：操作ログの記録
+                await setDoc(doc(collection(db, 'artifacts', appId, 'activityLogs')), {
+                    uid: userId, action: 'コメント', target: post.title, detail: comment.trim(), createdAt: Date.now()
                 });
                 setComment('');
             };
@@ -753,7 +784,7 @@ return (
                         <div className="flex items-center gap-3 mb-6">
                             <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-lg">{post.authorName[0]}</div>
                             <div>
-                                <div className="text-sm font-bold text-slate-800">{post.authorName}</div>
+                                <div className="text-sm font-bold text-slate-800">{userMap[post.authorId]?.name || post.authorName}</div>
                                 <div className="text-xs text-slate-400">{timeAgo(post.createdAt)} 作成</div>
                             </div>
                         </div>
@@ -768,7 +799,7 @@ return (
                                 <ul className="space-y-2">
                                     {newLogs.map((log, i) => (
                                         <li key={i} className="text-[13px] text-amber-900 bg-white/60 p-2.5 rounded-xl border border-amber-100/50">
-                                            <span className="font-bold mr-2">{log.authorName}:</span> {log.note}
+                                            <span className="font-bold mr-2">{userMap[log.authorId]?.name || log.authorName}:</span> {log.note}
                                         </li>
                                     ))}
                                 </ul>
@@ -805,7 +836,7 @@ return (
                                 {(post.comments || []).map(c => (
                                     <div key={c.id} className="bg-slate-50 rounded-2xl p-4">
                                         <div className="flex items-center justify-between mb-2">
-                                            <span className="font-bold text-[13px] text-slate-800">{c.authorName}</span>
+                                            <span className="font-bold text-[13px] text-slate-800">{userMap[c.authorId]?.name || c.authorName}</span>
                                             <span className="text-[11px] text-slate-400">{timeAgo(c.createdAt)}</span>
                                         </div>
                                         <p className="text-[14px] text-slate-600 whitespace-pre-wrap leading-relaxed">{c.text}</p>
@@ -834,123 +865,174 @@ return (
         };
 
         const PostForm = ({ post, profile, db, appId, userId, onSave, onCancel }) => {
-            const isEdit = !!post;
-            const [title, setTitle] = React.useState(post?.title || '');
-            const [content, setContent] = React.useState(post?.content || '');
-            const [link, setLink] = React.useState(post?.link || '');
-            const [mediaBase64, setMediaBase64] = React.useState(post?.mediaBase64 || null);
-            const [updateNote, setUpdateNote] = React.useState('');
-            const [saving, setSaving] = React.useState(false);
+    const isEdit = !!post;
+    const [title, setTitle] = React.useState(post?.title || '');
+    const [content, setContent] = React.useState(post?.content || '');
+    const [link, setLink] = React.useState(post?.link || '');
+    const [mediaBase64, setMediaBase64] = React.useState(post?.mediaBase64 || null);
+    
+    // ポップアップ用のステート
+    const [showConfirm, setShowConfirm] = React.useState(false);
+    const [autoDiffText, setAutoDiffText] = React.useState('');
+    const [saving, setSaving] = React.useState(false);
 
-            const handleImage = async (e) => {
-                const file = e.target.files[0];
-                if(!file) return;
-                try {
-                    const base64 = await compressImage(file);
-                    setMediaBase64(base64);
-                } catch(err) { alert('画像の処理に失敗しました。'); }
-            };
+    const handleImage = async (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        try {
+            const base64 = await compressImage(file);
+            setMediaBase64(base64);
+        } catch(err) { alert('画像の処理に失敗しました。'); }
+    };
 
-            const submit = async () => {
-                if(!title.trim() || !content.trim()) return;
-                setSaving(true);
-                const { collection, doc, setDoc, updateDoc } = window.firebaseModules;
-                const now = Date.now();
+    // 賢い差分抽出関数（前後の文章から変更された短い部分を抜き出す）
+    const generateDiff = (oldText, newText) => {
+        if (!oldText) oldText = ""; if (!newText) newText = "";
+        if (oldText === newText) return "";
+        let start = 0;
+        while(start < oldText.length && start < newText.length && oldText[start] === newText[start]) start++;
+        let oldEnd = oldText.length - 1; let newEnd = newText.length - 1;
+        while(oldEnd >= start && newEnd >= start && oldText[oldEnd] === newText[newEnd]) { oldEnd--; newEnd--; }
+        const oldPart = oldText.substring(start, oldEnd + 1);
+        const newPart = newText.substring(start, newEnd + 1);
+        
+        if (oldPart.length > 30 || newPart.length > 30) return "内容を大幅に更新しました";
+        if (oldPart && newPart) return `「${oldPart}」を「${newPart}」に変更しました`;
+        if (oldPart && !newPart) return `「${oldPart}」を削除しました`;
+        if (!oldPart && newPart) return `「${newPart}」を追記しました`;
+        return "内容を更新しました";
+    };
 
-                try {
-                    if (isEdit) {
-                        const logs = post.updateLogs || [];
-                        if (updateNote.trim()) logs.push({ timestamp: now, authorName: profile.name, note: updateNote.trim() });
-                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'posts', post.id), {
-                            title: title.trim(), content: content.trim(), link: link.trim(), mediaBase64, updatedAt: now, updateLogs: logs
-                        });
-                    } else {
-                        const newRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'));
-                        await setDoc(newRef, {
-                            id: newRef.id, title: title.trim(), content: content.trim(), link: link.trim(), mediaBase64,
-                            createdAt: now, updatedAt: now, authorId: userId, authorName: profile.name, comments: [], updateLogs: []
-                        });
-                    }
-                    onSave();
-                } catch(e) { console.error(e); alert("保存に失敗しました。"); setSaving(false); }
-            };
+    // 「更新する」を押した時の処理（一旦ポップアップを出す）
+    const handlePreSubmit = () => {
+        if(!title.trim() || !content.trim()) return;
+        if (isEdit) {
+            const diffs = [];
+            const tDiff = generateDiff(post.title, title);
+            const cDiff = generateDiff(post.content, content);
+            if (tDiff) diffs.push(`タイトル: ${tDiff}`);
+            if (cDiff) diffs.push(`内容: ${cDiff}`);
+            if (post.link !== link) diffs.push("参考リンクを変更しました");
+            if (post.mediaBase64 !== mediaBase64) diffs.push("添付画像を変更しました");
+            
+            setAutoDiffText(diffs.length > 0 ? diffs.join('\n') : '軽微な修正を行いました');
+            setShowConfirm(true); // ポップアップを表示
+        } else {
+            submitFinal(''); // 新規作成時はそのまま保存
+        }
+    };
 
-            const handleDelete = async () => {
-                if(confirm("このマニュアルを削除しますか？")) {
-                    setSaving(true);
-                    const { doc, deleteDoc } = window.firebaseModules;
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'posts', post.id));
-                    onSave();
-                }
-            };
+    // 最終的な保存処理
+    const submitFinal = async (finalLogText) => {
+        setSaving(true);
+        const { collection, doc, setDoc, updateDoc } = window.firebaseModules;
+        const now = Date.now();
 
-            return (
-    <div className="p-6 md:p-10 bg-white min-h-full animate-fade-in flex flex-col items-center pb-safe">
-        <div className="w-full max-w-3xl flex flex-col flex-1">
+        try {
+            if (isEdit) {
+                const logs = post.updateLogs || [];
+                if (finalLogText.trim()) logs.push({ timestamp: now, authorId: userId, authorName: profile.name, note: finalLogText.trim() });
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'posts', post.id), {
+                    title: title.trim(), content: content.trim(), link: link.trim(), mediaBase64, updatedAt: now, updateLogs: logs
+                });
+            } else {
+                const newRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'));
+                await setDoc(newRef, {
+                    id: newRef.id, title: title.trim(), content: content.trim(), link: link.trim(), mediaBase64,
+                    createdAt: now, updatedAt: now, authorId: userId, authorName: profile.name, comments: [], updateLogs: []
+                });
+            }
+            
+            // 追加：管理画面用の操作ログも記録
+            await setDoc(doc(collection(db, 'artifacts', appId, 'activityLogs')), {
+                uid: userId, action: isEdit ? '編集' : '新規作成', target: title.trim(), detail: finalLogText, createdAt: now
+            });
+
+            onSave();
+        } catch(e) { console.error(e); alert("保存に失敗しました。"); setSaving(false); }
+    };
+
+    const handleDelete = async () => {
+        if(confirm("このマニュアルを削除しますか？")) {
+            setSaving(true);
+            const { doc, deleteDoc, setDoc, collection } = window.firebaseModules;
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'posts', post.id));
+            await setDoc(doc(collection(db, 'artifacts', appId, 'activityLogs')), {
+                uid: userId, action: '削除', target: title.trim(), detail: '', createdAt: Date.now()
+            });
+            onSave();
+        }
+    };
+
+    return (
+        <div className="p-6 bg-white min-h-full animate-fade-in flex flex-col pb-safe relative">
             <h2 className="text-xl font-bold text-slate-800 mb-6">{isEdit ? 'マニュアルの編集' : '新規作成'}</h2>
-                    
-                    <div className="space-y-6 flex-1">
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-400 mb-2 tracking-wider">タイトル</label>
-                            <input type="text" value={title} onChange={e=>setTitle(e.target.value)} placeholder="例：商品Aの撮影ルール" 
-                                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-[15px] focus:bg-white focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all" />
-                        </div>
+            
+            <div className="space-y-6 flex-1">
+                <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-2 tracking-wider">タイトル</label>
+                    <input type="text" value={title} onChange={e=>setTitle(e.target.value)} placeholder="例：商品Aの撮影ルール" 
+                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-[15px] focus:bg-white focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all" />
+                </div>
+                <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-2 tracking-wider">詳細・手順</label>
+                    <textarea value={content} onChange={e=>setContent(e.target.value)} rows="6" placeholder="詳細な手順や注意点を入力..." 
+                              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-[15px] leading-relaxed focus:bg-white focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all resize-none"></textarea>
+                </div>
+
+                <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl space-y-5">
+                    {/* 画像とリンクの入力部分は変更なし */}
+                    <div>
+                        <label className="flex items-center gap-2 text-[13px] font-bold text-slate-700 mb-3"><IconImage size={18} className="text-slate-400"/> 画像を添付</label>
+                        {mediaBase64 ? (
+                            <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                                <img src={mediaBase64} className="w-full h-32 object-cover" />
+                                <button onClick={()=>setMediaBase64(null)} className="absolute top-2 right-2 bg-slate-900/60 backdrop-blur text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">✕</button>
+                            </div>
+                        ) : (
+                            <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-slate-300 rounded-2xl cursor-pointer hover:bg-slate-100 transition-colors">
+                                <div className="text-[13px] text-slate-500 font-medium">タップして写真を選択</div>
+                                <input type="file" accept="image/*" className="hidden" onChange={handleImage} />
+                            </label>
+                        )}
+                    </div>
+                    <div>
+                        <label className="flex items-center gap-2 text-[13px] font-bold text-slate-700 mb-3"><IconLink size={18} className="text-slate-400"/> 参考リンク</label>
+                        <input type="url" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://..." 
+                               className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-[14px] focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all" />
+                    </div>
+                </div>
+            </div>
+
+            <div className="mt-8 flex gap-3">
+                {isEdit && (
+                    <button onClick={handleDelete} disabled={saving} className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-colors"><IconTrash size={20}/></button>
+                )}
+                <button onClick={onCancel} disabled={saving} className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl hover:bg-slate-200 transition-colors">キャンセル</button>
+                <button onClick={handlePreSubmit} disabled={saving || !title.trim() || !content.trim()} className="flex-[2] bg-slate-800 text-white font-bold py-4 rounded-2xl hover:bg-slate-700 transition-colors shadow-md disabled:opacity-40 disabled:bg-slate-300">
+                    {saving ? '保存中...' : (isEdit ? '更新を確認する' : '投稿する')}
+                </button>
+            </div>
+
+            {/* 確認ポップアップ（差分編集） */}
+            {showConfirm && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6">
+                    <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-slide-up">
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">変更内容の確認</h3>
+                        <p className="text-xs text-slate-500 mb-4">自動抽出された変更点です。手動で書き換えることもできます。</p>
+                        <textarea value={autoDiffText} onChange={e=>setAutoDiffText(e.target.value)} rows="4"
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-[14px] leading-relaxed focus:bg-white focus:outline-none focus:border-primary transition-all resize-none"></textarea>
                         
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-400 mb-2 tracking-wider">詳細・手順</label>
-                            <textarea value={content} onChange={e=>setContent(e.target.value)} rows="6" placeholder="詳細な手順や注意点を入力..." 
-                                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-[15px] leading-relaxed focus:bg-white focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all resize-none"></textarea>
+                        <div className="mt-6 flex gap-3">
+                            <button onClick={() => setShowConfirm(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl">戻る</button>
+                            <button onClick={() => { setShowConfirm(false); submitFinal(autoDiffText); }} className="flex-1 bg-primary text-white font-bold py-3 rounded-xl shadow-md">これで保存</button>
                         </div>
-
-                        <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl space-y-5">
-                            <div>
-                                <label className="flex items-center gap-2 text-[13px] font-bold text-slate-700 mb-3"><IconImage size={18} className="text-slate-400"/> 画像を添付</label>
-                                {mediaBase64 ? (
-                                    <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                                        <img src={mediaBase64} className="w-full h-32 object-cover" />
-                                        <button onClick={()=>setMediaBase64(null)} className="absolute top-2 right-2 bg-slate-900/60 backdrop-blur text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm hover:bg-slate-900/80 transition-colors">✕</button>
-                                    </div>
-                                ) : (
-                                    <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-slate-300 rounded-2xl cursor-pointer hover:bg-slate-100 transition-colors">
-                                        <div className="text-[13px] text-slate-500 font-medium">タップして写真を選択</div>
-                                        <input type="file" accept="image/*" className="hidden" onChange={handleImage} />
-                                    </label>
-                                )}
-                            </div>
-                            
-                            <div>
-                                <label className="flex items-center gap-2 text-[13px] font-bold text-slate-700 mb-3"><IconLink size={18} className="text-slate-400"/> 参考リンク</label>
-                                <input type="url" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://..." 
-                                       className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-[14px] focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all" />
-                                <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">動画や資料はGoogle Drive等のリンクを貼付してください</p>
-                            </div>
-                        </div>
-
-                        {isEdit && (
-                            <div className="p-5 bg-amber-50/50 border border-amber-200/60 rounded-3xl">
-                                <label className="block text-[12px] font-bold text-amber-800 mb-2">今回の変更内容（他メンバーに通知されます）</label>
-                                <input type="text" value={updateNote} onChange={e=>setUpdateNote(e.target.value)} placeholder="例：背景色の指定を白に変更しました" 
-                                       className="w-full bg-white border border-amber-200/60 rounded-xl px-4 py-3 text-[14px] focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all" />
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="mt-8 flex gap-3">
-                        {isEdit && (
-                            <button onClick={handleDelete} disabled={saving} className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-colors">
-                                <IconTrash size={20}/>
-                            </button>
-                        )}
-                        <button onClick={onCancel} disabled={saving} className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl hover:bg-slate-200 transition-colors">キャンセル</button>
-                        <button onClick={submit} disabled={saving || !title.trim() || !content.trim()} className="flex-[2] bg-slate-800 text-white font-bold py-4 rounded-2xl hover:bg-slate-700 transition-colors shadow-md disabled:opacity-40 disabled:bg-slate-300">
-                            {saving ? '保存中...' : (isEdit ? '更新する' : '投稿する')}
-                        </button>
                     </div>
                 </div>
-                </div>
-            );
-        };
-
+            )}
+        </div>
+    );
+};
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
