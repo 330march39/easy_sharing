@@ -288,7 +288,7 @@ if (!fbReady) return <div className="min-h-screen flex items-center justify-cent
 if (!user) return <LoginScreen auth={auth} />;
 if (!profile) return <div className="min-h-screen flex items-center justify-center text-slate-400">読み込み中...</div>;
 
-if (view === 'admin' && isAdmin) return <AdminPanel auth={auth} db={db} appId={appId} onBack={() => setView('list')} />;
+if (view === 'admin' && isAdmin) return <AdminPanel auth={auth} db={db} appId={appId} userMap={userMap} onBack={() => setView('list')} />;
 if (view === 'account') return <AccountScreen user={user} profile={profile} auth={auth} onBack={() => setView('list')} />;
 
 // Handlers
@@ -444,7 +444,7 @@ return (
     );
 };
 
-        const AdminPanel = ({ auth, db, appId, onBack,userMap }) => {
+        const AdminPanel = ({ auth, db, appId, userMap, onBack }) => {
     const [newUserId, setNewUserId] = React.useState('');
     const [newUserName, setNewUserName] = React.useState(''); // 追加
     const [activityLogs, setActivityLogs] = React.useState([]);
@@ -663,7 +663,7 @@ return (
         {activityLogs.map(log => (
             <div key={log.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm">
                 <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-slate-700">{userMap[log.uid]?.name || '不明なユーザー'}</span>
+                    <span className="font-bold text-slate-700">{userMap?.[log.uid]?.name || '不明なユーザー'}</span>
                     <span className="text-[11px] text-slate-400">{new Date(log.createdAt).toLocaleString()}</span>
                 </div>
                 <div className="text-slate-600">
