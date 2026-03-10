@@ -887,64 +887,94 @@ return (
     const [link, setLink] = React.useState(post?.link || '');
     const [mediaBase64, setMediaBase64] = React.useState(post?.mediaBase64 || null);
     
-    // 追加: 録音・AI生成用のステート
+    // --- 録音・AI生成用のステート ---
     const [isRecording, setIsRecording] = React.useState(false);
     const [isGenerating, setIsGenerating] = React.useState(false);
     const [transcript, setTranscript] = React.useState('');
+    const transcriptRef = React.useRef(''); // 最新のテキストを確実に保持するための裏方変数
     const recognitionRef = React.useRef(null);
 
     const [showConfirm, setShowConfirm] = React.useState(false);
     const [autoDiffText, setAutoDiffText] = React.useState('');
     const [saving, setSaving] = React.useState(false);
 
-    // 音声認識の初期化
+    // 音声認識の初期化と設定
     React.useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
             recognition.continuous = true;
-            recognition.interimResults = true;
+            recognition.interimResults = true; // 話している途中の文字も取得する
             recognition.lang = 'ja-JP';
 
             recognition.onresult = (event) => {
-                let current = '';
-                for (let i = event.resultIndex; i < event.results.length; i++) {
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        current += event.results[i][0].transcript + ' ';
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
                     }
                 }
-                if (current) setTranscript(prev => prev + current);
+                
+                // 確定したテキストを裏側の変数（Ref）に確実に保存
+                if (finalTranscript) {
+                    transcriptRef.current += finalTranscript;
+                }
+                
+                // 画面には「確定済みのテキスト ＋ 今まさに話している途中のテキスト」を表示
+                setTranscript(transcriptRef.current + interimTranscript);
             };
             
             recognition.onerror = (e) => {
-                console.error("Speech Recognition Error:", e);
+                console.error("Speech Recognition Error:", e.error);
+                if (e.error === 'not-allowed') {
+                    alert('マイクの使用が許可されていません。ブラウザのアドレスバーの左側からマイクを許可してください。');
+                }
                 setIsRecording(false);
             };
+
+            // 無音状態が続いて自動でマイクが切れた時の処理
+            recognition.onend = () => {
+                if (isRecording) {
+                    setIsRecording(false);
+                    // 自動で切れた場合でも、そこまでの内容でAI生成をスタート
+                    generateManualWithAI(transcriptRef.current);
+                }
+            };
+
             recognitionRef.current = recognition;
         } else {
-            console.warn("このブラウザは音声認識に対応していません。");
+            console.warn("このブラウザは音声認識に対応していません。ChromeかSafariをご利用ください。");
         }
-    }, []);
+    }, [isRecording]); // 依存配列にisRecordingを追加
 
-    // 録音の開始/停止コントロール
+    // マイクボタンを押したときの処理
     const toggleRecording = () => {
         if (isRecording) {
             recognitionRef.current?.stop();
             setIsRecording(false);
-            generateManualWithAI(); // 録音停止と同時にAIに投げる
+            // 録音停止時に、確実に最新のテキスト（Ref）を渡してAIに投げる
+            generateManualWithAI(transcriptRef.current); 
         } else {
             setTranscript('');
-            recognitionRef.current?.start();
-            setIsRecording(true);
+            transcriptRef.current = ''; // Refもリセット
+            try {
+                recognitionRef.current?.start();
+                setIsRecording(true);
+            } catch (e) {
+                console.error("録音開始エラー:", e);
+            }
         }
     };
 
-    // AIでマニュアルを生成する処理
-    const generateManualWithAI = async () => {
-        // コンポーネントの最新のtranscriptを使いたいので、state更新を待つかRefを使うのが安全ですが、
-        // 簡易的に現状の transcript state を渡します
-        const textToProcess = transcript; 
-        if (!textToProcess) return;
+    // AIでマニュアルを生成する処理（引数でテキストを受け取るように変更）
+    const generateManualWithAI = async (textToProcess) => {
+        if (!textToProcess || !textToProcess.trim()) {
+            return; // 録音内容が空の場合は何もしない
+        }
 
         setIsGenerating(true);
         try {
@@ -958,18 +988,19 @@ return (
             if (!res.ok) throw new Error('API Request Failed');
             
             const data = await res.json();
-            // Geminiが生成したタイトルと内容をセット
             if (data.title) setTitle(data.title);
             if (data.content) setContent(data.content);
             
         } catch (err) {
             console.error("AI Generation Failed, Fallback to normal transcript:", err);
-            // エラー時（API使用不可時）のフォールバック：ただの文字起こしとして追記
+            // フォールバック：通常の文字起こしとして追記
             const fallbackText = "【音声メモ】\n" + textToProcess;
             setContent(prev => prev ? prev + '\n\n' + fallbackText : fallbackText);
             if (!title) setTitle("音声入力メモ");
         } finally {
             setIsGenerating(false);
+            setTranscript(''); // 終わったらプレビューを消す
+            transcriptRef.current = '';
         }
     };
 
